@@ -1,7 +1,7 @@
 # infra-bootstrap
 
 Bootstrap fresh Ubuntu environments with a single command.  
-`install.sh` installs the `infr` CLI, wires up 1Password CLI, configures Git using your PAT, and exposes opinionated templates for ML workloads.
+`install.sh` installs the `infr` CLI, wires up 1Password CLI, configures Git using your PAT, and provides an interactive ML tooling setup flow.
 
 ## Quick Start
 
@@ -18,16 +18,16 @@ Bootstrap fresh Ubuntu environments with a single command.
    ```bash
    ./install.sh
    ```
-   This copies helper scripts to `/usr/local/libexec/infr`, installs `/usr/local/bin/infr`, then runs the core bootstrap (1Password + Git).
+   This copies helper scripts to `/usr/local/libexec/infr`, installs `/usr/local/bin/infr`, runs the core bootstrap (1Password + Git), and launches the interactive `infr setup` workflow.
 
 ## `infr` CLI
 
 After installation you can invoke the CLI from anywhere. `infr` sources `/usr/local/libexec/infr/.env` (override with `INFR_ENV_FILE`) so all scripts share the same secret references:
 
 - `infr` or `infr bootstrap` – install 1Password CLI and configure GitHub using the PAT pulled from 1Password.
-- `infr -t ml` – apply the ML template (Python toolchain, CUDA driver, PyTorch stack, Weights & Biases, Hugging Face CLI).
-  - Override the virtualenv location with `ML_ENV_DIR=/path/to/venv infr -t ml` (defaults to `~/.infr/ml-venv`).
-- `infr inspect` – print an environment & hardware report (Ubuntu version, CUDA/Docker/Python toolchain, torch stack, CPU/GPU/RAM/disk).
+- `infr setup` – run a fresh inspection, show the results, then prompt before installing any missing ML tooling (Python, CUDA, Docker, PyTorch stack, W&B, Hugging Face CLI). Override the virtualenv path with `ML_ENV_DIR=/path/to/venv`.
+- `infr inspect` – print an environment & hardware report and refresh the component cache used by `setup`.
+  - `infr inspect --cached` replays the last cached component inspection without touching the system.
 
 All helper scripts live under `/usr/local/libexec/infr` (override with `INFR_LIB_DIR`).
 
@@ -54,6 +54,6 @@ Additional optional variables:
 - `OP_SERVICE_ACCOUNT_TOKEN` – required for non-interactive runs (exported at runtime, not stored in `.env`)
 - `OP_ACCOUNT_DOMAIN`, `OP_ACCOUNT_NAME` if you still use interactive `op signin --account <name>`
 - `GIT_PAT`, `HUGGINGFACE_TOKEN_WRITE`, `WANDB_KEY` to bypass 1Password retrieval
-- `ML_ENV_DIR` to override the ML template virtualenv location
+- `ML_ENV_DIR` to override the ML tooling virtualenv location
 
 Run `infr --help` for a concise usage summary.

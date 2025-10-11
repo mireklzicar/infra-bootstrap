@@ -61,4 +61,9 @@ if ! "$BIN_DIR/${CLI_NAME}" bootstrap; then
   die "Bootstrap failed. Review the logs above for details."
 fi
 
+log "Launching interactive setup…"
+if ! "$BIN_DIR/${CLI_NAME}" setup; then
+  die "Setup failed. Review the logs above for details."
+fi
+
 log "Installation complete. Use 'infr --help' for usage details."
