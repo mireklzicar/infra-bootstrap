@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PROGRAM="${0##*/}"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="${INFR_LIB_DIR:-/usr/local/libexec/infr}"
+if [[ -f "${SELF_DIR}/1password_cli.sh" ]]; then
+  LIB_DIR="$SELF_DIR"
+fi
+ENV_FILE="${INFR_ENV_FILE:-${LIB_DIR}/.env}"
+if [[ ! -f "$ENV_FILE" && -f "${SELF_DIR}/../.env" ]]; then
+  ENV_FILE="${SELF_DIR}/../.env"
+fi
+[[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
+
+log() {
+  printf '[%s] %s\n' "$PROGRAM" "$*"
+}
+
+die() {
+  printf '[%s][error] %s\n' "$PROGRAM" "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Infra Bootstrap CLI
+
+Usage:
+  infr [bootstrap]            Install 1Password CLI, attempt automated login, and configure Git
+  infr -t|--template ml       Install the ML template (CUDA stack, Python, Torch, W&B, Hugging Face)
+  infr inspect                Print environment and hardware inspection report
+  infr --help                 Show this help
+
+Environment:
+  GIT_PAT                     GitHub personal access token used for Git configuration
+  OP_SERVICE_ACCOUNT_TOKEN    1Password service account token (preferred for automated signin)
+  OP_ACCOUNT_DOMAIN           1Password account domain (e.g. my.1password.com)
+  OP_EMAIL                    1Password email (if using password + secret key flow)
+  OP_SECRET_KEY               1Password secret key (if using password + secret key flow)
+  OP_MASTER_PASSWORD          1Password master password (if using password + secret key flow)
+  ML_ENV_DIR                  Target virtual environment for ML template (default: ~/.infr/ml-venv)
+
+EOF
+}
+
+ensure_lib() {
+  [[ -d "$LIB_DIR" ]] || die "Support files directory not found: $LIB_DIR"
+}
+
+run_script() {
+  local script="$1"
+  shift || true
+  ensure_lib
+  local script_path="${LIB_DIR}/${script}"
+  [[ -f "$script_path" ]] || die "Missing helper script: $script_path"
+  log "Running ${script}..."
+  bash "$script_path" "$@"
+}
+
+bootstrap_core() {
+  run_script "1password_cli.sh"
+  run_script "git_setup.sh"
+  log "Core bootstrap complete."
+}
+
+template_ml() {
+  local env_dir="${ML_ENV_DIR:-$HOME/.infr/ml-venv}"
+  mkdir -p "$(dirname "$env_dir")" 2>/dev/null || true
+
+  run_script "install_python.sh"
+  run_script "setup_cuda_python.sh" "--with-python"
+  ENV_DIR="$env_dir" run_script "install_packages.sh"
+  run_script "wandb_setup.sh"
+  run_script "huggingface_setup.sh"
+  log "ML template installation finished."
+}
+
+run_template() {
+  local template="$1"
+  case "$template" in
+    ml) template_ml ;;
+    "")
+      die "Template name is required. Try 'infr -t ml'."
+      ;;
+    *)
+      die "Unknown template '$template'. Available templates: ml"
+      ;;
+  esac
+}
+
+command="bootstrap"
+template=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -t|--template)
+      [[ $# -ge 2 ]] || die "Option '$1' requires an argument."
+      template="$2"
+      command="template"
+      shift 2
+      ;;
+    bootstrap|base|core)
+      command="bootstrap"
+      shift
+      ;;
+    inspect)
+      command="inspect"
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      die "Unknown argument '$1'. Use --help for usage."
+      ;;
+  esac
+done
+
+case "$command" in
+  bootstrap) bootstrap_core ;;
+  template) run_template "$template" ;;
+  inspect) run_script "inspect_system.sh" ;;
+  *)
+    die "Unhandled command '$command'"
+    ;;
+esac
