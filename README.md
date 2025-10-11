@@ -11,7 +11,7 @@ Bootstrap fresh Ubuntu environments with a single command.
    ```bash
    export OP_SERVICE_ACCOUNT_TOKEN="<service-account-token>"
    ```
-   The installer reads GitHub/Hugging Face/W&B credentials from 1Password using this token.  
+   The installer reads GitHub/Hugging Face/W&B credentials from 1Password using this token and validates it with `op whoami`.  
    If you prefer the classic email + Secret Key flow, skip the export and run `op signin` manually after installation.
 
 3. Run the installer from the repository root:
@@ -39,7 +39,7 @@ All helper scripts live under `/usr/local/libexec/infr` (override with `INFR_LIB
 - `scripts/wandb_setup.sh` / `scripts/huggingface_setup.sh` – install CLIs and log in using the referenced secrets.
 - `scripts/inspect_system.sh` – emits system/package/hardware diagnostics.
 - `scripts/git_setup.sh` – installs GitHub CLI and configures Git using `GIT_PAT`.
-- `scripts/1password_cli.sh` – installs 1Password CLI and attempts service-account signin when credentials are present.
+- `scripts/1password_cli.sh` – installs 1Password CLI, validates `OP_SERVICE_ACCOUNT_TOKEN` when provided, and prints signin guidance otherwise.
 
 ## Tokens & Secrets
 
@@ -52,7 +52,7 @@ Secret references default to the following locations (override via the `OP_*_REF
 Additional optional variables:
 
 - `OP_SERVICE_ACCOUNT_TOKEN` – required for non-interactive runs (exported at runtime, not stored in `.env`)
-- `OP_ACCOUNT_DOMAIN`, `OP_ACCOUNT_NAME` if you still use interactive `op account add --signin`
+- `OP_ACCOUNT_DOMAIN`, `OP_ACCOUNT_NAME` if you still use interactive `op signin --account <name>`
 - `GIT_PAT`, `HUGGINGFACE_TOKEN_WRITE`, `WANDB_KEY` to bypass 1Password retrieval
 - `ML_ENV_DIR` to override the ML template virtualenv location
 
