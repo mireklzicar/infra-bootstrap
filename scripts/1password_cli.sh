@@ -9,8 +9,42 @@ curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --d
 sudo apt update
 sudo apt install -y 1password-cli
 
+persist_service_account_token() {
+  local token="${OP_SERVICE_ACCOUNT_TOKEN:-}"
+  [[ -n "$token" ]] || return 0
+
+  local target_user="${SUDO_USER:-$USER}"
+  local target_home
+  if ! target_home="$(eval echo "~${target_user}")"; then
+    printf 'Unable to locate home directory for %s; skipping token persistence.\n' "$target_user" >&2
+    return 0
+  fi
+
+  local config_dir="${target_home}/.config/infr"
+  local token_file="${config_dir}/op_token"
+  mkdir -p "$config_dir"
+  printf 'export OP_SERVICE_ACCOUNT_TOKEN=%q\n' "$token" >"$token_file"
+  chmod 600 "$token_file"
+  chown "$target_user":"$(id -gn "$target_user")" "$token_file" "$config_dir" >/dev/null 2>&1 || true
+
+  local bashrc="${target_home}/.bashrc"
+  if [[ ! -f "$bashrc" ]]; then
+    touch "$bashrc"
+    chown "$target_user":"$(id -gn "$target_user")" "$bashrc" >/dev/null 2>&1 || true
+  fi
+  if ! grep -Fqx 'source ~/.config/infr/op_token' "$bashrc"; then
+    {
+      printf '\n'
+      printf '# Load 1Password service account token for infr workflows\n'
+      printf 'source ~/.config/infr/op_token\n'
+    } >>"$bashrc"
+    chown "$target_user":"$(id -gn "$target_user")" "$bashrc" >/dev/null 2>&1 || true
+  fi
+}
+
 if [[ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]]; then
   if op whoami >/dev/null 2>&1; then
+    persist_service_account_token
     printf '1Password CLI authenticated with provided service account token.\n'
   else
     printf 'Failed to validate OP_SERVICE_ACCOUNT_TOKEN. Check the value and try again.\n' >&2
