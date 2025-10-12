@@ -399,6 +399,24 @@ setup_interactive() {
 
   declare -a decision_components=()
   declare -a to_install=()
+  local auto_mode="false"
+  local missing_seen=0
+
+  if [[ ! -t 0 ]]; then
+    auto_mode="true"
+  fi
+
+  if [[ -n "${INFR_AUTO_INSTALL:-}" ]]; then
+    local auto_setting
+    auto_setting="$(printf '%s' "${INFR_AUTO_INSTALL:-}" | tr '[:upper:]' '[:lower:]')"
+    case "$auto_setting" in
+      1|true|yes) auto_mode="true" ;;
+    esac
+  fi
+
+  if [[ "$auto_mode" == "true" ]]; then
+    log "Auto-install mode enabled; missing components will be queued without prompts."
+  fi
 
   for component in "${SETUP_COMPONENTS[@]}"; do
     local label
@@ -413,51 +431,61 @@ setup_interactive() {
       continue
     fi
 
+    missing_seen=1
+
+    if [[ "$auto_mode" == "true" ]]; then
+      to_install+=("$component")
+      log "Auto-queued ${label} for installation."
+      continue
+    fi
+
     decision_components+=("$component")
   done
 
-  if ((${#decision_components[@]} == 0)); then
+  if (( missing_seen == 0 )); then
     print_component_summary "cached"
     log "Setup flow complete."
     return
   fi
 
-  log "Review missing components below; installations will run after all prompts are answered."
+  if [[ "$auto_mode" == "false" ]]; then
+    log "Review missing components below; installations will run after all prompts are answered."
 
-  for component in "${decision_components[@]}"; do
-    local label
-    label="$(component_label "$component")"
-    local detail
-    detail="$(get_component_detail "$component")"
+    for component in "${decision_components[@]}"; do
+      local label
+      label="$(component_label "$component")"
+      local detail
+      detail="$(get_component_detail "$component")"
 
-    printf '\n%s appears missing (%s).\n' "$label" "${detail:-no detail}"
-    if ! check_dependencies_satisfied "$component"; then
-      local deps_list
-      deps_list="$(component_depends "$component")"
-      if [[ -n "$deps_list" ]]; then
-        printf '%s depends on %s; make sure to install them first.\n' "$label" "$deps_list"
+      printf '\n%s appears missing (%s).\n' "$label" "${detail:-no detail}"
+      if ! check_dependencies_satisfied "$component"; then
+        local deps_list
+        deps_list="$(component_depends "$component")"
+        if [[ -n "$deps_list" ]]; then
+          printf '%s depends on %s; make sure to install them first.\n' "$label" "$deps_list"
+        fi
       fi
-    fi
 
-    local response
-    while true; do
-      read -r -p "Install ${label} after prompts? [y/N] " response || response=""
-      case "$response" in
-        [Yy])
-          to_install+=("$component")
-          log "Queued ${label} for installation."
-          break
-          ;;
-        [Nn]|"")
-          log "Skipping ${label}."
-          break
-          ;;
-        *)
-          printf "Please answer y or n.\n"
-          ;;
-      esac
+      local response
+      while true; do
+        read -r -p "Install ${label} after prompts? [y/N] " response || response=""
+        case "$response" in
+          [Yy])
+            to_install+=("$component")
+            log "Queued ${label} for installation."
+            break
+            ;;
+          [Nn]|"")
+            log "Skipping ${label}."
+            break
+            ;;
+          *)
+            printf "Please answer y or n.\n"
+            ;;
+        esac
+      done
     done
-  done
+  fi
 
   if ((${#to_install[@]} == 0)); then
     log "No installations queued."

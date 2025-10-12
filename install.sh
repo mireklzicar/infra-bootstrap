@@ -62,7 +62,7 @@ if ! "$BIN_DIR/${CLI_NAME}" bootstrap; then
 fi
 
 log "Launching interactive setup…"
-if ! "$BIN_DIR/${CLI_NAME}" setup; then
+if ! INFR_AUTO_INSTALL="${INFR_AUTO_INSTALL:-true}" "$BIN_DIR/${CLI_NAME}" setup; then
   die "Setup failed. Review the logs above for details."
 fi
 
