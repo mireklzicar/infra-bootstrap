@@ -36,6 +36,7 @@ Usage:
                               When targets are provided, only run the specified setup steps.
   infr setup --debug          Prints full installation trace and logs
   infr inspect [--cached]     Print environment inspection (fresh by default, cached when requested)
+  infr update                 Pull latest infra-bootstrap changes and refresh installed support files
   infr uninstall              Remove CLI, caches, and infra-bootstrap repository
   infr --help                Show this help
 
@@ -74,6 +75,53 @@ ensure_cache_dir() {
 
 ensure_log_dir() {
   mkdir -p "$LOG_DIR"
+}
+
+find_repo_dir() {
+  declare -a candidates=()
+  local candidate resolved
+
+  if [[ -n "${INFR_REPO_DIR:-}" ]]; then
+    candidates+=("${INFR_REPO_DIR}")
+  fi
+
+  if [[ -n "${SELF_DIR:-}" ]]; then
+    candidates+=("$SELF_DIR")
+    candidates+=("${SELF_DIR}/..")
+  fi
+
+  if [[ -n "${LIB_DIR:-}" ]]; then
+    candidates+=("$LIB_DIR")
+    candidates+=("${LIB_DIR}/..")
+  fi
+
+  candidates+=("${HOME}/infra-bootstrap")
+
+  declare -a unique=()
+  for candidate in "${candidates[@]}"; do
+    [[ -n "$candidate" ]] || continue
+    if ! resolved="$(cd "$candidate" 2>/dev/null && pwd)"; then
+      continue
+    fi
+    local seen=0
+    local existing
+    for existing in "${unique[@]}"; do
+      if [[ "$existing" == "$resolved" ]]; then
+        seen=1
+        break
+      fi
+    done
+    if (( seen == 1 )); then
+      continue
+    fi
+    unique+=("$resolved")
+    if [[ -d "${resolved}/.git" ]]; then
+      printf '%s\n' "$resolved"
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 remove_path() {
@@ -156,6 +204,118 @@ bootstrap_core() {
   run_script "1password_cli.sh"
   run_script "git_setup.sh"
   log "Core bootstrap complete."
+}
+
+update_infr() {
+  if ! command -v git >/dev/null 2>&1; then
+    die "git is required to run 'infr update'."
+  fi
+
+  local repo_dir
+  if ! repo_dir="$(find_repo_dir)"; then
+    die "Unable to locate infra-bootstrap git repository. Set INFR_REPO_DIR to override."
+  fi
+
+  log "Updating infra-bootstrap repository at ${repo_dir}..."
+
+  local status_out
+  status_out="$(git -C "$repo_dir" status --porcelain 2>/dev/null || true)"
+  if [[ -n "$status_out" ]]; then
+    die "Repository at ${repo_dir} has local modifications. Commit or stash them before updating."
+  fi
+
+  if ! git -C "$repo_dir" fetch --prune; then
+    die "git fetch failed for repository ${repo_dir}."
+  fi
+
+  local upstream_ref
+  upstream_ref="$(git -C "$repo_dir" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+  if [[ -z "$upstream_ref" ]]; then
+    local current_branch remote_name
+    current_branch="$(git -C "$repo_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    remote_name="$(git -C "$repo_dir" remote 2>/dev/null | head -n1 || true)"
+    if [[ -z "$current_branch" || -z "$remote_name" ]]; then
+      die "Repository at ${repo_dir} has no upstream configured; unable to determine update target."
+    fi
+    upstream_ref="${remote_name}/${current_branch}"
+  fi
+
+  if ! git -C "$repo_dir" merge --ff-only "$upstream_ref"; then
+    die "Fast-forward merge failed when updating ${repo_dir}. Manually reconcile the repository."
+  fi
+
+  log "Repository update complete."
+
+  local repo_scripts="${repo_dir}/scripts"
+  if [[ "$LIB_DIR" == "$repo_scripts" ]]; then
+    log "Support scripts already sourced from repository; no refresh needed."
+    return
+  fi
+
+  if [[ ! -d "$repo_scripts" ]]; then
+    log "Support scripts not found at ${repo_scripts}; skipping library refresh."
+    return
+  fi
+
+  local sudo_cmd=""
+  if [[ "$EUID" -ne 0 && -z "${INFR_NO_SUDO:-}" ]]; then
+    if command -v sudo >/dev/null 2>&1; then
+      sudo_cmd="sudo"
+    else
+      die "Root privileges required to refresh support files in ${LIB_DIR}."
+    fi
+  fi
+
+  local staging
+  staging="$(mktemp -d)"
+  if ! cp -R "${repo_scripts}/." "$staging/"; then
+    rm -rf "$staging"
+    die "Failed to stage updated support scripts."
+  fi
+  rm -f "${staging}/infr"
+
+  if [[ -f "${repo_dir}/.env" ]]; then
+    if ! cp "${repo_dir}/.env" "${staging}/.env"; then
+      rm -rf "$staging"
+      die "Failed to stage updated environment file."
+    fi
+  fi
+
+  log "Refreshing support files in ${LIB_DIR}..."
+  if [[ -z "${LIB_DIR:-}" ]]; then
+    rm -rf "$staging"
+    die "Support directory LIB_DIR is not set; aborting refresh."
+  fi
+  if [[ -n "$sudo_cmd" ]]; then
+    if ! $sudo_cmd rm -rf "$LIB_DIR"; then
+      rm -rf "$staging"
+      die "Failed to remove existing support files at ${LIB_DIR}."
+    fi
+    if ! $sudo_cmd mkdir -p "$LIB_DIR"; then
+      rm -rf "$staging"
+      die "Failed to recreate support directory ${LIB_DIR}."
+    fi
+    if ! $sudo_cmd cp -R "${staging}/." "$LIB_DIR/"; then
+      rm -rf "$staging"
+      die "Failed to install refreshed support files into ${LIB_DIR}."
+    fi
+  else
+    if ! rm -rf "$LIB_DIR"; then
+      rm -rf "$staging"
+      die "Failed to remove existing support files at ${LIB_DIR}."
+    fi
+    if ! mkdir -p "$LIB_DIR"; then
+      rm -rf "$staging"
+      die "Failed to recreate support directory ${LIB_DIR}."
+    fi
+    if ! cp -R "${staging}/." "$LIB_DIR/"; then
+      rm -rf "$staging"
+      die "Failed to install refreshed support files into ${LIB_DIR}."
+    fi
+  fi
+
+  rm -rf "$staging"
+  log "Support files refreshed."
 }
 
 declare -a SETUP_COMPONENTS=(
@@ -886,6 +1046,10 @@ while [[ $# -gt 0 ]]; do
       command="uninstall"
       shift
       ;;
+    update)
+      command="update"
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -910,6 +1074,7 @@ case "$command" in
   bootstrap) bootstrap_core ;;
   inspect) perform_inspection "$inspect_mode" ;;
   setup) setup_interactive "${SETUP_REQUESTED[@]}" ;;
+  update) update_infr ;;
   uninstall) uninstall_infr ;;
   *)
     die "Unhandled command '$command'"

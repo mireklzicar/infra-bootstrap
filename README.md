@@ -28,6 +28,7 @@ After installation you can invoke the CLI from anywhere. `infr` sources `/usr/lo
 - `infr setup` – run a fresh inspection, show the results, then prompt before installing any missing ML tooling (Python, CUDA, Docker, PyTorch stack, W&B, Hugging Face CLI). Override the virtualenv path with `ML_ENV_DIR=/path/to/venv`.
 - `infr inspect` – print an environment & hardware report and refresh the component cache used by `setup`.
   - `infr inspect --cached` replays the last cached component inspection without touching the system.
+- `infr update` – fetch and fast-forward the local infra-bootstrap repository, then refresh the installed helper scripts (skips the copy when already running from the repo).
 
 All helper scripts live under `/usr/local/libexec/infr` (override with `INFR_LIB_DIR`).
 
