@@ -33,7 +33,8 @@ Usage:
   infr [bootstrap]            Install 1Password CLI, attempt automated login, and configure Git
   infr setup                  Inspect the system and interactively install missing ML tooling
   infr inspect [--cached]     Print environment inspection (fresh by default, cached when requested)
-  infr --help                 Show this help
+  infr uninstall              Remove CLI, caches, and infra-bootstrap repository
+  infr --help                Show this help
 
 Environment:
   GIT_PAT                     GitHub personal access token used for Git configuration
@@ -60,6 +61,59 @@ ensure_cache_dir() {
 
 ensure_log_dir() {
   mkdir -p "$LOG_DIR"
+}
+
+remove_path() {
+  local sudo_cmd="$1"
+  local target="$2"
+  local description="$3"
+  if [[ -z "${target:-}" ]]; then
+    return 0
+  fi
+
+  local normalized="$target"
+  if [[ -d "$target" ]]; then
+    local dir_path
+    if dir_path="$(cd "$target" 2>/dev/null && pwd)"; then
+      normalized="$dir_path"
+    fi
+  else
+    local parent_path
+    parent_path="$(dirname "$target")"
+    if [[ -d "$parent_path" ]]; then
+      local parent_real
+      if parent_real="$(cd "$parent_path" 2>/dev/null && pwd)"; then
+        normalized="${parent_real}/$(basename "$target")"
+      fi
+    fi
+  fi
+
+  target="$normalized"
+
+  if [[ -z "$target" || "$target" == "/" ]]; then
+    log "Refusing to remove ${description}: unsafe target '${target:-}'."
+    return 1
+  fi
+
+  if [[ ! -e "$target" ]]; then
+    log "${description} not found at ${target}."
+    return 0
+  fi
+
+  if rm -rf "$target" 2>/dev/null; then
+    log "Removed ${description} at ${target}."
+    return 0
+  fi
+
+  if [[ -n "$sudo_cmd" ]]; then
+    if $sudo_cmd rm -rf "$target"; then
+      log "Removed ${description} at ${target} (with sudo)."
+      return 0
+    fi
+  fi
+
+  log "Failed to remove ${description} at ${target}."
+  return 1
 }
 
 run_script() {
@@ -535,6 +589,145 @@ setup_interactive() {
   log "Setup flow complete."
 }
 
+uninstall_infr() {
+  log "Starting infr uninstall..."
+
+  local errors=0
+  local sudo_cmd=""
+  if [[ "$EUID" -ne 0 && -z "${INFR_NO_SUDO:-}" ]]; then
+    if command -v sudo >/dev/null 2>&1; then
+      sudo_cmd="sudo"
+    fi
+  fi
+
+  if [[ -n "$sudo_cmd" ]]; then
+    log "Using sudo for privileged file removals."
+  fi
+
+  local -a repo_candidates=()
+  if [[ -n "${INFR_REPO_DIR:-}" ]]; then
+    repo_candidates+=("${INFR_REPO_DIR}")
+  fi
+  repo_candidates+=("${HOME}/infra-bootstrap")
+  local repo_from_self=""
+  if repo_from_self="$(cd "${SELF_DIR}/.." 2>/dev/null && pwd)"; then
+    repo_candidates+=("$repo_from_self")
+  fi
+
+  local -a seen_repos=()
+  local repo_removed=0
+  local repo_candidate
+  for repo_candidate in "${repo_candidates[@]}"; do
+    [[ -n "${repo_candidate:-}" ]] || continue
+    local already_seen=0
+    local listed
+    for listed in "${seen_repos[@]}"; do
+      if [[ "$listed" == "$repo_candidate" ]]; then
+        already_seen=1
+        break
+      fi
+    done
+    if (( already_seen == 1 )); then
+      continue
+    fi
+    seen_repos+=("$repo_candidate")
+
+    if [[ ! -d "$repo_candidate" ]]; then
+      continue
+    fi
+    if [[ ! -f "${repo_candidate}/install.sh" || ! -f "${repo_candidate}/scripts/infr" ]]; then
+      continue
+    fi
+
+    if remove_path "$sudo_cmd" "$repo_candidate" "infra-bootstrap repository"; then
+      repo_removed=1
+      break
+    else
+      errors=1
+    fi
+  done
+
+  if (( repo_removed == 0 )); then
+    log "infra-bootstrap repository not detected; skipping removal."
+  fi
+
+  if [[ -d "$LIB_DIR" ]]; then
+    if ! remove_path "$sudo_cmd" "$LIB_DIR" "support files directory"; then
+      errors=1
+    fi
+  elif (( repo_removed == 0 )); then
+    log "Support files directory not found at ${LIB_DIR}."
+  fi
+
+  local default_cache_root="${HOME}/.cache/infr"
+  local cache_root_removed=0
+  if [[ "${INSPECT_CACHE_FILE}" == "${default_cache_root}"* || "${LOG_DIR}" == "${default_cache_root}"* ]]; then
+    if [[ -e "$default_cache_root" ]]; then
+      if remove_path "$sudo_cmd" "$default_cache_root" "cache directory"; then
+        cache_root_removed=1
+      else
+        errors=1
+      fi
+    fi
+  fi
+
+  if (( cache_root_removed == 0 )); then
+    if [[ -e "$INSPECT_CACHE_FILE" ]]; then
+      if ! remove_path "$sudo_cmd" "$INSPECT_CACHE_FILE" "inspect cache file"; then
+        errors=1
+      fi
+    else
+      log "Inspect cache file not found at ${INSPECT_CACHE_FILE}."
+    fi
+
+    if [[ -d "$LOG_DIR" ]]; then
+      if ! remove_path "$sudo_cmd" "$LOG_DIR" "log directory"; then
+        errors=1
+      fi
+    else
+      log "Log directory not found at ${LOG_DIR}."
+    fi
+  fi
+
+  local -a cli_candidates=()
+  local cli_path
+  cli_path="$(command -v "$PROGRAM" 2>/dev/null || true)"
+  if [[ -n "$cli_path" ]]; then
+    cli_candidates+=("$cli_path")
+  fi
+  if [[ -n "${INFR_BIN_DIR:-}" ]]; then
+    cli_candidates+=("${INFR_BIN_DIR}/${PROGRAM}")
+  else
+    cli_candidates+=("/usr/local/bin/${PROGRAM}")
+  fi
+  if [[ -n "${INSTALL_PREFIX:-}" ]]; then
+    cli_candidates+=("${INSTALL_PREFIX}/${PROGRAM}")
+  fi
+
+  local cli_removed=0
+  local cli_candidate
+  for cli_candidate in "${cli_candidates[@]}"; do
+    [[ -n "${cli_candidate:-}" ]] || continue
+    if [[ ! -e "$cli_candidate" ]]; then
+      continue
+    fi
+    if remove_path "$sudo_cmd" "$cli_candidate" "CLI launcher"; then
+      cli_removed=1
+    else
+      errors=1
+    fi
+  done
+  if (( cli_removed == 0 )); then
+    log "CLI launcher not found; nothing to remove."
+  fi
+
+  if (( errors > 0 )); then
+    die "Uninstall encountered failures."
+  fi
+
+  log "infr uninstall complete."
+}
+
 command=""
 inspect_mode="fresh"
 
@@ -554,6 +747,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     setup)
       command="setup"
+      shift
+      ;;
+    uninstall)
+      command="uninstall"
       shift
       ;;
     --help|-h)
@@ -578,6 +775,7 @@ case "$command" in
   bootstrap) bootstrap_core ;;
   inspect) perform_inspection "$inspect_mode" ;;
   setup) setup_interactive ;;
+  uninstall) uninstall_infr ;;
   *)
     die "Unhandled command '$command'"
     ;;
