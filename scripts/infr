@@ -312,12 +312,23 @@ component_status_huggingface() {
     return
   fi
 
-  if python3 -m pip show huggingface_hub >/dev/null 2>&1; then
-    local version
-    version="$(python3 -m pip show huggingface_hub 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}' | tr -d '\n')"
-    printf 'installed|Version %s' "${version:-detected}"
-  else
+  if ! command -v huggingface-cli >/dev/null 2>&1; then
+    printf 'missing|huggingface-cli not found'
+    return
+  fi
+
+  if ! python3 -m pip show huggingface_hub >/dev/null 2>&1; then
     printf 'missing|huggingface_hub package not found'
+    return
+  fi
+
+  local info username
+  if info="$(huggingface-cli whoami 2>/dev/null)"; then
+    username="$(printf '%s' "$info" | awk -F': ' '/^username/ {print $2; exit}')"
+    username="${username:-detected}"
+    printf 'installed|Authenticated as %s' "$username"
+  else
+    printf 'missing|huggingface-cli not authenticated'
   fi
 }
 
