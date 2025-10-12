@@ -55,5 +55,7 @@ Additional optional variables:
 - `OP_ACCOUNT_DOMAIN`, `OP_ACCOUNT_NAME` if you still use interactive `op signin --account <name>`
 - `GIT_PAT`, `HUGGINGFACE_TOKEN_WRITE`, `WANDB_KEY` to bypass 1Password retrieval
 - `ML_ENV_DIR` to override the ML tooling virtualenv location
+- `GH_HOST`, `GH_GIT_PROTOCOL` to override the GitHub host or git protocol used during bootstrap
 
+During `infr bootstrap` the PAT referenced by `OP_GIT_PAT_REF` is surfaced to `gh` as `GH_TOKEN` so the login flow can run headlessly. `gh` then persists the credential in `~/.config/gh`, so subsequent shells stay authenticated without re-exporting `GH_TOKEN`.
 Run `infr --help` for a concise usage summary.
