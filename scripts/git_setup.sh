@@ -10,6 +10,16 @@ sudo apt update && sudo apt install -y gh
 pat=""
 gh_host="${GH_HOST:-github.com}"
 git_protocol="${GH_GIT_PROTOCOL:-https}"
+current_user="$(id -un)"
+target_user="${SUDO_USER:-$current_user}"
+
+run_as_target() {
+  if [[ "$target_user" == "$current_user" ]]; then
+    "$@"
+  else
+    sudo -u "$target_user" -H "$@"
+  fi
+}
 
 ensure_pat() {
   if [[ -z "$pat" ]]; then
@@ -18,19 +28,19 @@ ensure_pat() {
 }
 
 run_gh() {
-  if gh "$@"; then
+  if run_as_target gh "$@"; then
     return 0
   fi
   ensure_pat
-  GH_TOKEN="$pat" gh "$@"
+  run_as_target env GH_TOKEN="$pat" gh "$@"
 }
 
-if ! gh auth status --hostname "$gh_host" >/dev/null 2>&1; then
+if ! run_as_target gh auth status --hostname "$gh_host" >/dev/null 2>&1; then
   ensure_pat
-  printf '%s\n' "$pat" | gh auth login --hostname "$gh_host" --git-protocol "$git_protocol" --with-token >/dev/null
+  printf '%s\n' "$pat" | run_as_target gh auth login --hostname "$gh_host" --git-protocol "$git_protocol" --with-token >/dev/null
 fi
 
 run_gh auth setup-git >/dev/null
-git config --global user.name "$(run_gh api user --jq .login)"
-git config --global user.email "$(run_gh api user/emails --jq 'map(select(.verified==true))[0].email // .[0].email')"
+run_as_target git config --global user.name "$(run_gh api user --jq .login)"
+run_as_target git config --global user.email "$(run_gh api user/emails --jq 'map(select(.verified==true))[0].email // .[0].email')"
 unset pat
