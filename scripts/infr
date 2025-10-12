@@ -15,6 +15,7 @@ fi
 
 INSPECT_CACHE_FILE="${INFR_INSPECT_CACHE:-$HOME/.cache/infr/inspect.env}"
 LOG_DIR="${INFR_LOG_DIR:-$HOME/.cache/infr/logs}"
+DEBUG_MODE="${INFR_DEBUG:-false}"
 
 log() {
   printf '[%s] %s\n' "$PROGRAM" "$*"
@@ -733,6 +734,10 @@ inspect_mode="fresh"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --debug)
+      DEBUG_MODE="true"
+      shift
+      ;;
     --cached)
       inspect_mode="cached"
       shift
@@ -770,6 +775,8 @@ fi
 if [[ "$inspect_mode" == "cached" && "$command" != "inspect" ]]; then
   die "--cached can only be used with 'infr inspect'."
 fi
+
+export INFR_DEBUG="$DEBUG_MODE"
 
 case "$command" in
   bootstrap) bootstrap_core ;;
