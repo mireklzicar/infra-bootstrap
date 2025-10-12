@@ -9,6 +9,9 @@ item() {
   printf ' - %s: %s\n' "$1" "$2"
 }
 
+pip_freeze_output=""
+pip_freeze_status=1
+
 section "System"
 if [[ -f /etc/os-release ]]; then
   # shellcheck source=/dev/null
@@ -67,37 +70,61 @@ if command -v python3 >/dev/null 2>&1; then
     item "Torch Stack" "torch modules not installed"
   fi
 
+  set +e
+  pip_freeze_output="$(python3 -m pip freeze 2>/dev/null)"
+  pip_freeze_status=$?
+  set -e
+
+  wandb_version=""
+  hf_version=""
+  if [[ $pip_freeze_status -eq 0 && -n "$pip_freeze_output" ]]; then
+    while IFS= read -r line; do
+      case "$line" in
+        wandb==*)
+          wandb_version=${line#wandb==}
+          ;;
+        wandb\ @*)
+          wandb_version=${line#wandb @ }
+          ;;
+        huggingface-hub==*)
+          hf_version=${line#huggingface-hub==}
+          ;;
+        huggingface_hub==*)
+          hf_version=${line#huggingface_hub==}
+          ;;
+        huggingface-hub\ @*)
+          hf_version=${line#huggingface-hub @ }
+          ;;
+        huggingface_hub\ @*)
+          hf_version=${line#huggingface_hub @ }
+          ;;
+      esac
+      if [[ -n "$wandb_version" && -n "$hf_version" ]]; then
+        break
+      fi
+    done <<< "$pip_freeze_output"
+  fi
+
   if [[ "${INFR_DEBUG:-false}" == "true" ]]; then
-    set +e
-    wandb_version="$(python3 -m pip show wandb 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}')"
-    wandb_status=$?
-    set -e
-    if [[ $wandb_status -eq 0 && -n "$wandb_version" ]]; then
+    if [[ -n "$wandb_version" ]]; then
       item "Weights & Biases" "Version ${wandb_version}"
     else
       item "Weights & Biases" "not installed"
     fi
-
-    set +e
-    hf_version="$(python3 -m pip show huggingface_hub 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}')"
-    hf_status=$?
-    set -e
-    if [[ $hf_status -eq 0 && -n "$hf_version" ]]; then
+    if [[ -n "$hf_version" ]]; then
       item "Hugging Face Hub" "Version ${hf_version}"
     else
       item "Hugging Face Hub" "not installed"
     fi
   else
-    if python3 -m pip show wandb >/dev/null 2>&1; then
-      wandb_version=$(python3 -m pip show wandb 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}')
-      item "Weights & Biases" "${wandb_version:-installed}"
+    if [[ -n "$wandb_version" ]]; then
+      item "Weights & Biases" "$wandb_version"
     else
       item "Weights & Biases" "not installed"
     fi
 
-    if python3 -m pip show huggingface_hub >/dev/null 2>&1; then
-      hf_version=$(python3 -m pip show huggingface_hub 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}')
-      item "Hugging Face Hub" "${hf_version:-installed}"
+    if [[ -n "$hf_version" ]]; then
+      item "Hugging Face Hub" "$hf_version"
     else
       item "Hugging Face Hub" "not installed"
     fi
