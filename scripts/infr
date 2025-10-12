@@ -14,6 +14,7 @@ fi
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 
 INSPECT_CACHE_FILE="${INFR_INSPECT_CACHE:-$HOME/.cache/infr/inspect.env}"
+LOG_DIR="${INFR_LOG_DIR:-$HOME/.cache/infr/logs}"
 
 log() {
   printf '[%s] %s\n' "$PROGRAM" "$*"
@@ -57,14 +58,31 @@ ensure_cache_dir() {
   mkdir -p "$cache_dir"
 }
 
+ensure_log_dir() {
+  mkdir -p "$LOG_DIR"
+}
+
 run_script() {
   local script="$1"
   shift || true
   ensure_lib
   local script_path="${LIB_DIR}/${script}"
   [[ -f "$script_path" ]] || die "Missing helper script: $script_path"
+  ensure_log_dir
+  local log_label="${script%.sh}"
+  local timestamp
+  timestamp="$(date -u +'%Y%m%dT%H%M%SZ')"
+  local log_file="${LOG_DIR}/${log_label}_${timestamp}.log"
   log "Running ${script}..."
-  bash "$script_path" "$@"
+  set +e
+  bash "$script_path" "$@" 2>&1 | tee "$log_file"
+  local rc=${PIPESTATUS[0]}
+  set -e
+  if [[ $rc -ne 0 ]]; then
+    log "${script} failed (exit ${rc}). See ${log_file} for details."
+    return "$rc"
+  fi
+  log "${script} completed. Log stored at ${log_file}."
 }
 
 bootstrap_core() {
@@ -495,13 +513,25 @@ setup_interactive() {
   fi
 
   log "Beginning queued installations..."
+  declare -a failed_components=()
   for component in "${SETUP_COMPONENTS[@]}"; do
     if [[ " ${to_install[*]} " == *" $component "* ]]; then
-      install_component "$component"
+      if ! install_component "$component"; then
+        failed_components+=("$component")
+      fi
     fi
   done
 
   print_component_summary "cached"
+  if ((${#failed_components[@]} > 0)); then
+    local labels=()
+    local failed
+    for failed in "${failed_components[@]}"; do
+      labels+=("$(component_label "$failed")")
+    done
+    log "Setup completed with failures: ${labels[*]}. Review logs under ${LOG_DIR}."
+    return 1
+  fi
   log "Setup flow complete."
 }
 

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
+if ! sudo -n true >/dev/null 2>&1; then
+    echo "[ERROR] sudo elevated privileges are required for CUDA setup. Re-run this step with an interactive sudo session or configure passwordless sudo."
+    exit 1
+fi
+
 echo "[INFO] Updating apt..."
 sudo apt-get update
 
