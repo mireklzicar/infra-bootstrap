@@ -67,16 +67,22 @@ if command -v python3 >/dev/null 2>&1; then
     item "Torch Stack" "torch modules not installed"
   fi
 
-  if python3 -m pip show wandb >/dev/null 2>&1; then
-    wandb_version=$(python3 -m pip show wandb 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}')
-    item "Weights & Biases" "${wandb_version:-installed}"
+  set +e
+  wandb_version="$(python3 -m pip show wandb 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}')"
+  wandb_status=$?
+  set -e
+  if [[ $wandb_status -eq 0 && -n "$wandb_version" ]]; then
+    item "Weights & Biases" "Version ${wandb_version}"
   else
     item "Weights & Biases" "not installed"
   fi
 
-  if python3 -m pip show huggingface_hub >/dev/null 2>&1; then
-    hf_version=$(python3 -m pip show huggingface_hub 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}')
-    item "Hugging Face Hub" "${hf_version:-installed}"
+  set +e
+  hf_version="$(python3 -m pip show huggingface_hub 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}')"
+  hf_status=$?
+  set -e
+  if [[ $hf_status -eq 0 && -n "$hf_version" ]]; then
+    item "Hugging Face Hub" "Version ${hf_version}"
   else
     item "Hugging Face Hub" "not installed"
   fi
