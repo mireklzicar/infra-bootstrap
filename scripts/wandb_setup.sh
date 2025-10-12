@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/secret_helpers.sh"
+
 pip install -U wandb
-WANDB_API_KEY="$(op read "$OP_WANDB_KEY_REF")" wandb login --relogin --cloud >/dev/null
+
+api_key="$(op_read_secret "${OP_WANDB_KEY_REF:-}" "Weights & Biases API key")"
+wandb login --relogin --cloud --apikey "$api_key" >/dev/null

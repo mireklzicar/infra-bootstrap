@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/secret_helpers.sh"
+
 pip install -U "huggingface_hub[cli]"
-python3 - "$(op read "$OP_HF_TOKEN_REF")" <<'PY'
+
+token="$(op_read_secret "${OP_HF_TOKEN_REF:-}" "Hugging Face token")"
+python3 - "$token" <<'PY'
 import sys
 from huggingface_hub import login
 login(token=sys.argv[1], add_to_git_credential=True)

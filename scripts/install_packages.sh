@@ -33,9 +33,9 @@ retry_pip() {
 }
 
 install_torch() {
-  # Decide channel and install torch/vision/audio as in your history
+  # Decide channel and install torch/vision as in your history
   local idx_flag=""
-  local torch_pkgs=("torch" "torchvision" "torchaudio")
+  local torch_pkgs=("torch" "torchvision")
 
   case "$TORCH_CHANNEL" in
     auto)
@@ -110,7 +110,7 @@ retry_pip "wandb"
 log "Installing nvitop…"
 retry_pip "nvitop"
 
-# PyTorch (+ torchvision + torchaudio) with CUDA/CPU selection
+# PyTorch (+ torchvision) with CUDA/CPU selection
 install_torch
 
 # -----------------------
@@ -122,7 +122,7 @@ $PYTHON_BIN -m pip check || true
 log "Reporting key versions…"
 $PYTHON_BIN - <<'PY'
 import importlib, sys
-mods = ["torch","torchvision","torchaudio","transformers","datasets","numpy","pandas","matplotlib","tqdm","prettytable","wandb","nvitop"]
+mods = ["torch","torchvision","transformers","datasets","numpy","pandas","matplotlib","tqdm","prettytable","wandb","nvitop"]
 for m in mods:
     try:
         mod = importlib.import_module(m)

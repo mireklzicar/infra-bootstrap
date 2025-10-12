@@ -201,7 +201,7 @@ component_status_ml_packages() {
   fi
 
   local python_code
-  python_code=$'import importlib, sys\nmods = ["torch", "torchvision", "torchaudio", "transformers", "datasets", "nvitop"]\nmissing = []\nreport = []\nfor name in mods:\n    try:\n        module = importlib.import_module(name)\n        ver = getattr(module, "__version__", "unknown")\n        report.append(f"{name} {ver}")\n    except Exception as exc:\n        missing.append(name)\nif missing:\n    print("missing|" + ", ".join(missing))\nelse:\n    print("installed|" + "; ".join(report))\n'
+  python_code=$'import importlib, sys\nmods = ["torch", "torchvision", "transformers", "datasets", "nvitop"]\nmissing = []\nreport = []\nfor name in mods:\n    try:\n        module = importlib.import_module(name)\n        ver = getattr(module, "__version__", "unknown")\n        report.append(f"{name} {ver}")\n    except Exception as exc:\n        missing.append(name)\nif missing:\n    print("missing|" + ", ".join(missing))\nelse:\n    print("installed|" + "; ".join(report))\n'
 
   local report status detail
   set +e
@@ -397,6 +397,9 @@ install_component() {
 setup_interactive() {
   perform_inspection "fresh"
 
+  declare -a decision_components=()
+  declare -a to_install=()
+
   for component in "${SETUP_COMPONENTS[@]}"; do
     local label
     label="$(component_label "$component")"
@@ -410,22 +413,39 @@ setup_interactive() {
       continue
     fi
 
+    decision_components+=("$component")
+  done
+
+  if ((${#decision_components[@]} == 0)); then
+    print_component_summary "cached"
+    log "Setup flow complete."
+    return
+  fi
+
+  log "Review missing components below; installations will run after all prompts are answered."
+
+  for component in "${decision_components[@]}"; do
+    local label
+    label="$(component_label "$component")"
+    local detail
+    detail="$(get_component_detail "$component")"
+
+    printf '\n%s appears missing (%s).\n' "$label" "${detail:-no detail}"
     if ! check_dependencies_satisfied "$component"; then
       local deps_list
       deps_list="$(component_depends "$component")"
-      log "${label} depends on ${deps_list} which are not fully installed yet."
+      if [[ -n "$deps_list" ]]; then
+        printf '%s depends on %s; make sure to install them first.\n' "$label" "$deps_list"
+      fi
     fi
 
-    printf '\n%s appears missing (%s).\n' "$label" "${detail:-no detail}"
     local response
     while true; do
-      read -r -p "Install ${label}? [y/N] " response || response=""
+      read -r -p "Install ${label} after prompts? [y/N] " response || response=""
       case "$response" in
         [Yy])
-          install_component "$component"
-          # Refresh local snapshot after potential installs by dependencies.
-          status="$(get_component_status "$component")"
-          detail="$(get_component_detail "$component")"
+          to_install+=("$component")
+          log "Queued ${label} for installation."
           break
           ;;
         [Nn]|"")
@@ -437,6 +457,20 @@ setup_interactive() {
           ;;
       esac
     done
+  done
+
+  if ((${#to_install[@]} == 0)); then
+    log "No installations queued."
+    print_component_summary "cached"
+    log "Setup flow complete."
+    return
+  fi
+
+  log "Beginning queued installations..."
+  for component in "${SETUP_COMPONENTS[@]}"; do
+    if [[ " ${to_install[*]} " == *" $component "* ]]; then
+      install_component "$component"
+    fi
   done
 
   print_component_summary "cached"
