@@ -57,5 +57,5 @@ Additional optional variables:
 - `ML_ENV_DIR` to override the ML tooling virtualenv location
 - `GH_HOST`, `GH_GIT_PROTOCOL` to override the GitHub host or git protocol used during bootstrap
 
-During `infr bootstrap` the PAT referenced by `OP_GIT_PAT_REF` is surfaced to `gh` as `GH_TOKEN` so the login flow can run headlessly. `gh` then persists the credential in `~/.config/gh`, so subsequent shells stay authenticated without re-exporting `GH_TOKEN`.
+During `infr bootstrap` the PAT referenced by `OP_GIT_PAT_REF` feeds a headless `gh auth login`. When additional `gh` calls need the token during bootstrap, the script passes it transiently via `GH_TOKEN` and immediately clears it. `gh` persists the credential in `~/.config/gh`, so subsequent shells stay authenticated without re-exporting `GH_TOKEN`.
 Run `infr --help` for a concise usage summary.
