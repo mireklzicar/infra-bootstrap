@@ -32,7 +32,9 @@ Infra Bootstrap CLI
 
 Usage:
   infr [bootstrap]            Install 1Password CLI, attempt automated login, and configure Git
-  infr setup                  Inspect the system and interactively install missing ML tooling
+  infr setup [targets...]     Inspect the system and interactively install missing ML tooling
+                              When targets are provided, only run the specified setup steps.
+  infr setup --debug          Prints full installation trace and logs
   infr inspect [--cached]     Print environment inspection (fresh by default, cached when requested)
   infr uninstall              Remove CLI, caches, and infra-bootstrap repository
   infr --help                Show this help
@@ -46,6 +48,16 @@ Environment:
   OP_MASTER_PASSWORD          1Password master password (if using password + secret key flow)
   ML_ENV_DIR                  Target virtual environment for ML packages (default: ~/.infr/ml-venv)
   INFR_INSPECT_CACHE          Override location for cached inspection metadata (default: ~/.cache/infr/inspect.env)
+
+Setup targets (infr setup hf op ...)
+  python|py                   Python toolchain (python3 + pip)
+  cuda|gpu                    CUDA drivers & toolkit
+  docker                      Docker engine
+  ml|ml_packages              ML Python packages (torch, transformers, etc.)
+  wandb                       Weights & Biases CLI setup
+  hf|huggingface              Hugging Face CLI setup
+  op|1password                1Password CLI install/login helper
+  git                         Git configuration helper
 
 EOF
 }
@@ -154,6 +166,44 @@ declare -a SETUP_COMPONENTS=(
   "wandb"
   "huggingface"
 )
+
+declare -a SETUP_REQUESTED=()
+
+resolve_setup_target() {
+  local token="$1"
+  [[ -n "$token" ]] || return 1
+  token="$(printf '%s' "$token" | tr '[:upper:]' '[:lower:]')"
+  token="${token//-/_}"
+  case "$token" in
+    python|py)
+      printf 'component python\n'
+      ;;
+    cuda|gpu)
+      printf 'component cuda\n'
+      ;;
+    docker|docker_engine)
+      printf 'component docker\n'
+      ;;
+    ml|ml_packages|mlpackages|mlpkgs|packages|pip_packages|pytorch)
+      printf 'component ml_packages\n'
+      ;;
+    wandb)
+      printf 'component wandb\n'
+      ;;
+    hf|huggingface|hugging_face)
+      printf 'component huggingface\n'
+      ;;
+    op|1password|onepassword|1p|opcli|op_cli)
+      printf 'script 1password_cli.sh\n'
+      ;;
+    git|git_setup)
+      printf 'script git_setup.sh\n'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
 
 INSPECT_TIMESTAMP=""
 
@@ -479,6 +529,71 @@ install_component() {
 }
 
 setup_interactive() {
+  local -a requested=("$@")
+
+  if ((${#requested[@]} > 0)); then
+    local -a ordered_targets=()
+    local token resolved target_type target_value key
+    local need_inspection=0
+
+    for token in "${requested[@]}"; do
+      if ! resolved="$(resolve_setup_target "$token")"; then
+        die "Unknown setup target '$token'. Use 'infr --help' to list supported names."
+      fi
+      target_type="${resolved%% *}"
+      target_value="${resolved#* }"
+      key="${target_type}:${target_value}"
+      if [[ " ${ordered_targets[*]} " != *" ${key} "* ]]; then
+        ordered_targets+=("$key")
+        if [[ "$target_type" == "component" ]]; then
+          need_inspection=1
+        fi
+      fi
+    done
+
+    if (( need_inspection )); then
+      perform_inspection "fresh"
+    fi
+
+    log "Executing setup targets: ${requested[*]}"
+
+    local -a failures=()
+
+    for key in "${ordered_targets[@]}"; do
+      target_type="${key%%:*}"
+      target_value="${key#*:}"
+      case "$target_type" in
+        component)
+          local label
+          label="$(component_label "$target_value")"
+          if ! install_component "$target_value"; then
+            failures+=("$label")
+          fi
+          ;;
+        script)
+          if ! run_script "$target_value"; then
+            failures+=("$target_value")
+          fi
+          ;;
+        *)
+          die "Unhandled setup target type '$target_type' for '$key'"
+          ;;
+      esac
+    done
+
+    if (( need_inspection )); then
+      print_component_summary "cached"
+    fi
+
+    if ((${#failures[@]} > 0)); then
+      log "Targeted setup completed with failures: ${failures[*]}."
+      return 1
+    fi
+
+    log "Targeted setup complete."
+    return 0
+  fi
+
   perform_inspection "fresh"
 
   declare -a decision_components=()
@@ -764,6 +879,8 @@ while [[ $# -gt 0 ]]; do
     setup)
       command="setup"
       shift
+      SETUP_REQUESTED=("$@")
+      break
       ;;
     uninstall)
       command="uninstall"
@@ -792,7 +909,7 @@ export INFR_DEBUG="$DEBUG_MODE"
 case "$command" in
   bootstrap) bootstrap_core ;;
   inspect) perform_inspection "$inspect_mode" ;;
-  setup) setup_interactive ;;
+  setup) setup_interactive "${SETUP_REQUESTED[@]}" ;;
   uninstall) uninstall_infr ;;
   *)
     die "Unhandled command '$command'"
