@@ -37,7 +37,7 @@ All helper scripts live under `/usr/local/libexec/infr` (override with `INFR_LIB
 - `scripts/install_python.sh` – installs Python 3, pip, venv, headers, and build tools.
 - `scripts/setup_cuda_python.sh` – installs NVIDIA drivers and (optionally) Python.
 - `scripts/install_packages.sh` – provisions an ML-focused virtual environment (torch, transformers, wandb, etc.).
-- `scripts/wandb_setup.sh` / `scripts/huggingface_setup.sh` – install CLIs and log in using the referenced secrets.
+- `scripts/wandb_setup.sh` / `scripts/huggingface_setup.sh` – install CLIs, log in using the referenced secrets, and persist `WANDB_API_KEY` in `~/.config/infr/wandb_env` for future shells.
 - `scripts/inspect_system.sh` – emits system/package/hardware diagnostics.
 - `scripts/git_setup.sh` – installs GitHub CLI and configures Git using `GIT_PAT`.
 - `scripts/1password_cli.sh` – installs 1Password CLI, validates `OP_SERVICE_ACCOUNT_TOKEN` when provided, and prints signin guidance otherwise.

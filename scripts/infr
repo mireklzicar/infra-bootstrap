@@ -760,6 +760,7 @@ setup_interactive() {
   declare -a to_install=()
   local auto_mode="false"
   local missing_seen=0
+  local forced_refresh_seen=0
 
   if [[ ! -t 0 ]]; then
     auto_mode="true"
@@ -786,6 +787,14 @@ setup_interactive() {
     detail="$(get_component_detail "$component")"
 
     if [[ "$status" == "installed" ]]; then
+      if [[ "$component" == "wandb" || "$component" == "huggingface" ]]; then
+        if [[ " ${to_install[*]} " != *" $component "* ]]; then
+          to_install+=("$component")
+        fi
+        forced_refresh_seen=1
+        log "${label} already present (${detail:-ok}). Refreshing credentials."
+        continue
+      fi
       log "${label} already present (${detail:-ok}). Skipping."
       continue
     fi
@@ -801,13 +810,13 @@ setup_interactive() {
     decision_components+=("$component")
   done
 
-  if (( missing_seen == 0 )); then
+  if (( missing_seen == 0 )) && (( forced_refresh_seen == 0 )); then
     print_component_summary "cached"
     log "Setup flow complete."
     return
   fi
 
-  if [[ "$auto_mode" == "false" ]]; then
+  if [[ "$auto_mode" == "false" ]] && ((${#decision_components[@]} > 0)); then
     log "Review missing components below; installations will run after all prompts are answered."
 
     for component in "${decision_components[@]}"; do
