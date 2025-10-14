@@ -58,6 +58,18 @@ else
   item "pip" "pip3 not found"
 fi
 
+if command -v gcloud >/dev/null 2>&1; then
+  item "gcloud" "$(gcloud --version 2>/dev/null | head -n1)"
+else
+  item "gcloud" "gcloud not found"
+fi
+
+if command -v gsutil >/dev/null 2>&1; then
+  item "gsutil" "$(gsutil version 2>/dev/null | head -n1)"
+else
+  item "gsutil" "gsutil not found"
+fi
+
 if command -v python3 >/dev/null 2>&1; then
   python_code=$'import importlib\nreport = []\nfor name in ("torch", "torchvision"):\n    try:\n        module = importlib.import_module(name)\n        ver = getattr(module, "__version__", "unknown")\n        extra = ""\n        if name == "torch":\n            import torch\n            extra = f" (cuda_available={torch.cuda.is_available()})"\n        report.append(f"{name} {ver}{extra}")\n    except Exception as exc:\n        report.append(f"{name} not installed ({exc.__class__.__name__})")\nprint("; ".join(report))\n'
   set +e

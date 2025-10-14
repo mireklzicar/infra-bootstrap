@@ -36,6 +36,7 @@ Usage:
                               When targets are provided, only run the specified setup steps.
   infr setup --debug          Prints full installation trace and logs
   infr inspect [--cached]     Print environment inspection (fresh by default, cached when requested)
+  infr gc <subcommand>        Google Cloud helpers (subcommands: setup_project, create_bucket, upload)
   infr update                 Pull latest infra-bootstrap changes and refresh installed support files
   infr uninstall              Remove CLI, caches, and infra-bootstrap repository
   infr --help                Show this help
@@ -59,6 +60,7 @@ Setup targets (infr setup hf op ...)
   hf|huggingface              Hugging Face CLI setup
   op|1password                1Password CLI install/login helper
   git                         Git configuration helper
+  gcloud|gsutil               Google Cloud SDK (gcloud + gsutil)
 
 EOF
 }
@@ -325,9 +327,12 @@ declare -a SETUP_COMPONENTS=(
   "ml_packages"
   "wandb"
   "huggingface"
+  "gcloud"
 )
 
 declare -a SETUP_REQUESTED=()
+GC_SUBCOMMAND=""
+declare -a GC_ARGS=()
 
 resolve_setup_target() {
   local token="$1"
@@ -359,6 +364,9 @@ resolve_setup_target() {
     git|git_setup)
       printf 'script git_setup.sh\n'
       ;;
+    gcloud|google_cloud|gsutil)
+      printf 'component gcloud\n'
+      ;;
     *)
       return 1
       ;;
@@ -375,6 +383,7 @@ component_label() {
     ml_packages) echo "ML Python packages" ;;
     wandb) echo "Weights & Biases CLI" ;;
     huggingface) echo "Hugging Face CLI" ;;
+    gcloud) echo "Google Cloud SDK (gcloud + gsutil)" ;;
     *) die "Unknown component '$1'" ;;
   esac
 }
@@ -387,6 +396,7 @@ component_script() {
     ml_packages) echo "install_packages.sh" ;;
     wandb) echo "wandb_setup.sh" ;;
     huggingface) echo "huggingface_setup.sh" ;;
+    gcloud) echo "google_cloud/install_gcloud_cli.sh" ;;
     *) die "Unknown component '$1'" ;;
   esac
 }
@@ -542,6 +552,35 @@ component_status_huggingface() {
   fi
 }
 
+component_status_gcloud() {
+  local missing=()
+  local details=()
+
+  if command -v gcloud >/dev/null 2>&1; then
+    local gcloud_version
+    gcloud_version="$(gcloud --version 2>/dev/null | head -n1 | tr -d '\r')"
+    gcloud_version="${gcloud_version:-gcloud detected}"
+    details+=("$gcloud_version")
+  else
+    missing+=("gcloud")
+  fi
+
+  if command -v gsutil >/dev/null 2>&1; then
+    local gsutil_version
+    gsutil_version="$(gsutil version 2>/dev/null | head -n1 | tr -d '\r')"
+    gsutil_version="${gsutil_version:-gsutil detected}"
+    details+=("$gsutil_version")
+  else
+    missing+=("gsutil")
+  fi
+
+  if ((${#missing[@]} == 0)); then
+    printf 'installed|%s' "$(IFS='; '; echo "${details[*]}")"
+  else
+    printf 'missing|Missing: %s' "$(IFS=', '; echo "${missing[*]}")"
+  fi
+}
+
 run_component_check() {
   local component="$1"
   case "$component" in
@@ -551,6 +590,7 @@ run_component_check() {
     ml_packages) component_status_ml_packages ;;
     wandb) component_status_wandb ;;
     huggingface) component_status_huggingface ;;
+    gcloud) component_status_gcloud ;;
     *) die "Unknown component '$component'" ;;
   esac
 }
@@ -686,6 +726,37 @@ install_component() {
   else
     log "${label} still reports as '${status}'. Review logs above."
   fi
+}
+
+run_gc_command() {
+  local subcommand="${1:-}"
+  shift || true
+
+  case "$subcommand" in
+    ""|-h|--help|help)
+      cat <<'EOF'
+Usage: infr gc <subcommand> [args]
+
+Subcommands:
+  setup_project   Authenticate and configure gcloud for a project (wraps google_cloud/setup_gcloud_project.sh)
+  create_bucket   Create a bucket and grant access (wraps google_cloud/create_bucket_with_access.sh)
+  upload          Upload a run directory to GCS (wraps google_cloud/upload_run_to_gcs.sh)
+EOF
+      return 0
+      ;;
+    setup_project)
+      run_script "google_cloud/setup_gcloud_project.sh" "$@"
+      ;;
+    create_bucket)
+      run_script "google_cloud/create_bucket_with_access.sh" "$@"
+      ;;
+    upload)
+      run_script "google_cloud/upload_run_to_gcs.sh" "$@"
+      ;;
+    *)
+      die "Unknown Google Cloud subcommand '${subcommand}'. Use 'infr gc --help' for options."
+      ;;
+  esac
 }
 
 setup_interactive() {
@@ -1051,6 +1122,18 @@ while [[ $# -gt 0 ]]; do
       SETUP_REQUESTED=("$@")
       break
       ;;
+    gc)
+      command="gc"
+      shift
+      if [[ $# -gt 0 ]]; then
+        GC_SUBCOMMAND="$1"
+        shift
+      else
+        GC_SUBCOMMAND=""
+      fi
+      GC_ARGS=("$@")
+      break
+      ;;
     uninstall)
       command="uninstall"
       shift
@@ -1085,6 +1168,7 @@ case "$command" in
   setup) setup_interactive "${SETUP_REQUESTED[@]}" ;;
   update) update_infr ;;
   uninstall) uninstall_infr ;;
+  gc) run_gc_command "$GC_SUBCOMMAND" "${GC_ARGS[@]}" ;;
   *)
     die "Unhandled command '$command'"
     ;;
